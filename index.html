@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1f3a5f">
+<title>屋台 持ち物・在庫チェック</title>
+<style>
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --ink: #1b2430;
+  --muted: #5d6877;
+  --line: #d3dae3;
+  --accent: #1f3a5f;
+  --accent-ink: #ffffff;
+  --ok: #2f7d4f;
+  --ok-soft: #e1f0e6;
+  --warn: #9a5b00;
+  --warn-soft: #fbefd9;
+  --danger: #b3261e;
+  --field: #f6f8fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11161d;
+    --surface: #1a212b;
+    --ink: #e7ecf2;
+    --muted: #9aa6b5;
+    --line: #2c3643;
+    --accent: #8fb3e0;
+    --accent-ink: #0f1720;
+    --ok: #6cc494;
+    --ok-soft: #1c3226;
+    --warn: #e8b25c;
+    --warn-soft: #3a2c14;
+    --danger: #f08a82;
+    --field: #232c38;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+button, input, select { font: inherit; color: inherit; }
+button { touch-action: manipulation; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* ---- ヘッダー（スクロールしても残る） ---- */
+.top {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+}
+.top-row { display: flex; align-items: center; gap: 8px; }
+h1 { font-size: 17px; margin: 0; flex: 1; min-width: 0; color: var(--accent); letter-spacing: .02em; }
+.sync { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.sync[data-kind="busy"]::before { background: var(--warn); }
+.sync[data-kind="error"] { color: var(--danger); font-weight: 700; }
+.sync[data-kind="error"]::before { background: var(--danger); }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); display: grid; place-items: center; padding: 0;
+}
+.icon-btn svg { width: 20px; height: 20px; }
+.progress { margin-top: 6px; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.progress b { font-variant-numeric: tabular-nums; }
+.bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .25s; }
+.filters { margin-top: 8px; display: flex; gap: 8px; }
+.filters select {
+  flex: 1; min-width: 0; height: 40px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); padding: 0 10px; font-size: 16px;
+}
+.chip {
+  height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); white-space: nowrap; font-size: 14px;
+}
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+
+.wrap { max-width: 640px; margin: 0 auto; padding: 8px 12px calc(40px + env(safe-area-inset-bottom, 0px)); }
+.search {
+  width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); padding: 0 12px; font-size: 16px; margin: 4px 0 2px;
+}
+
+/* ---- カテゴリと品目 ---- */
+.cat { margin-top: 14px; }
+.cat h2 {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 14px; margin: 0 2px 6px; color: var(--accent); letter-spacing: .03em;
+}
+.cat-count { font-weight: 400; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cat-count.full { color: var(--ok); font-weight: 700; }
+ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.item {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px 10px 10px; transition: opacity .2s, background .2s;
+}
+.item.done { background: var(--ok-soft); border-color: transparent; }
+.item.gone { opacity: .45; }
+.top-line { display: flex; align-items: center; gap: 10px; }
+.check {
+  flex: none; width: 48px; height: 48px; margin: -4px 0 -4px -6px; border: 0; background: none; padding: 0;
+  display: grid; place-items: center;
+}
+.check .box {
+  width: 30px; height: 30px; border-radius: 8px; border: 2.5px solid var(--muted);
+  display: grid; place-items: center; background: var(--surface);
+}
+.check svg { width: 18px; height: 18px; opacity: 0; }
+.item.done .check .box { background: var(--ok); border-color: var(--ok); }
+.item.done .check svg { opacity: 1; }
+.info { min-width: 0; flex: 1; }
+.name { font-size: 17px; font-weight: 700; overflow-wrap: anywhere; line-height: 1.35; }
+.item.done .name { color: var(--muted); text-decoration: line-through; }
+.memo { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.memo.warn { color: var(--warn); font-weight: 700; }
+.nums { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr 64px; gap: 8px; align-items: end; }
+.lbl { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; text-align: center; letter-spacing: .06em; }
+.stepper { display: flex; align-items: stretch; height: 44px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--field); }
+.step { flex: none; width: 40px; border: 0; background: none; font-size: 22px; line-height: 1; color: var(--accent); }
+.step:active { background: var(--line); }
+.numin {
+  flex: 1; min-width: 0; width: 100%; border: 0; border-inline: 1px solid var(--line);
+  background: var(--surface); text-align: center; font-size: 16px; font-weight: 700;
+  font-variant-numeric: tabular-nums; border-radius: 0; padding: 0 2px;
+}
+.left { text-align: center; }
+.left .val { display: block; height: 44px; line-height: 44px; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.left.neg .val { color: var(--danger); }
+.left.neg .lbl { color: var(--danger); font-weight: 700; }
+
+/* ---- 状態表示 ---- */
+.panel { max-width: 420px; margin: 0 auto; padding: calc(48px + env(safe-area-inset-top, 0px)) 20px 40px; }
+.panel h1 { font-size: 22px; margin-bottom: 16px; }
+.panel p { margin: 8px 0; }
+.panel .detail { font-size: 12px; color: var(--muted); word-break: break-all; }
+.field {
+  width: 100%; height: 52px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  padding: 0 14px; font-size: 18px; margin: 12px 0;
+}
+.primary {
+  width: 100%; height: 52px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink);
+  font-weight: 700; font-size: 17px;
+}
+.err { color: var(--danger); font-weight: 700; min-height: 1.5em; }
+.empty { text-align: center; color: var(--muted); padding: 32px 0; }
+.foot { margin-top: 28px; text-align: center; font-size: 12px; color: var(--muted); }
+.link { background: none; border: 0; color: var(--accent); text-decoration: underline; font-size: 12px; padding: 8px; }
+.toast {
+  position: fixed; left: 12px; right: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 20;
+  max-width: 420px; margin: 0 auto; padding: 12px 14px; border-radius: 12px;
+  background: var(--ink); color: var(--bg); font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<!-- 合言葉の入力 -->
+<main id="loginView" class="panel" hidden>
+  <h1>屋台 持ち物・在庫チェック</h1>
+  <p>合言葉を入力してください。</p>
+  <form id="loginForm" autocomplete="off">
+    <input id="keyInput" class="field" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="合言葉" placeholder="合言葉">
+    <p id="loginMsg" class="err" role="alert"></p>
+    <button class="primary" type="submit">開く</button>
+  </form>
+</main>
+
+<!-- 読み込み中・エラー -->
+<main id="statusView" class="panel" hidden>
+  <h1>屋台 持ち物・在庫チェック</h1>
+  <p id="statusMsg" role="status">読み込み中…</p>
+  <p id="statusDetail" class="detail"></p>
+  <button id="retryBtn" class="primary" type="button" hidden>もう一度読み込む</button>
+</main>
+
+<!-- チェックリスト -->
+<div id="mainView" hidden>
+  <header class="top">
+    <div class="top-row">
+      <h1>屋台 持ち物・在庫</h1>
+      <span id="sync" class="sync" data-kind="ok" role="status">同期済み</span>
+      <button id="reloadBtn" class="icon-btn" type="button" aria-label="最新の状態に更新">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="progress">
+      <span>チェック <b id="progressText">0 / 0</b></span>
+      <div class="bar"><i id="barFill"></i></div>
+    </div>
+    <div class="filters">
+      <select id="catSelect" aria-label="カテゴリで絞り込み"><option value="">すべてのカテゴリ</option></select>
+      <button id="todoBtn" class="chip" type="button" aria-pressed="false">未チェックだけ</button>
+    </div>
+  </header>
+  <div class="wrap">
+    <input id="search" class="search" type="search" placeholder="品目名で探す" aria-label="品目名で探す" autocomplete="off">
+    <div id="list"></div>
+    <p id="empty" class="empty" hidden>条件に合う品目がありません。</p>
+    <div class="foot">
+      <div id="footInfo"></div>
+      <button id="relogin" class="link" type="button">合言葉を入れ直す</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<template id="itemTpl">
+  <li class="item">
+    <div class="top-line">
+      <button type="button" class="check" role="checkbox" aria-checked="false">
+        <span class="box"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </button>
+      <div class="info">
+        <div class="name"></div>
+        <div class="memo"></div>
+      </div>
+    </div>
+    <div class="nums">
+      <div class="num" data-field="stock">
+        <span class="lbl">在庫</span>
+        <div class="stepper">
+          <button type="button" class="step" data-d="-1">−</button>
+          <input class="numin" type="text" inputmode="decimal" autocomplete="off">
+          <button type="button" class="step" data-d="1">＋</button>
+        </div>
+      </div>
+      <div class="num" data-field="used">
+        <span class="lbl">使用</span>
+        <div class="stepper">
+          <button type="button" class="step" data-d="-1">−</button>
+          <input class="numin" type="text" inputmode="decimal" autocomplete="off">
+          <button type="button" class="step" data-d="1">＋</button>
+        </div>
+      </div>
+      <div class="left"><span class="lbl">残り</span><span class="val"></span></div>
+    </div>
+  </li>
+</template>
+
+<script>
+(() => {
+'use strict';
+
+const API_URL = 'https://script.google.com/macros/s/AKfycbz1IeUw4AZntCm9v-qDYkG7P0PfPopEtN_kzAKCZ4BAMSDCyuLUyLB1JEgc4MJQvHpB6Q/exec';
+const APP_VERSION = '2026-10-17a'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
+const KEY_STORAGE = 'event_checklist_key';
+const JSONP_FIRST_STORAGE = 'event_checklist_jsonp_first'; // fetch で止まった端末は次回から JSONP を先に使う
+const POLL_MS = 20000;
+const FETCH_TIMEOUT_MS = 15000;
+const JSONP_TIMEOUT_MS = 20000;
+
+const $ = (id) => document.getElementById(id);
+const state = { items: [], rowMap: new Map(), key: '', fetchedAt: null, serverVersion: '', sig: '', cat: '', onlyTodo: false, query: '' };
+const rowState = new Map(); // row -> { busy, queue: [] }  同じ品目への操作は順番に1つずつ送る
+let pendingTotal = 0;
+let loading = false;
+
+function storageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function storageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 保存できない端末でも毎回入力すれば使える */ } }
+function storageDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+const round6 = (n) => Math.round(n * 1e6) / 1e6;
+const norm = (s) => String(s).normalize('NFKC').toLowerCase();
+
+// ---------- 表示の切り替え ----------
+function show(id) { ['loginView', 'statusView', 'mainView'].forEach((v) => { $(v).hidden = v !== id; }); }
+function status(msg, detail, retry) {
+  $('statusMsg').textContent = msg;
+  $('statusDetail').textContent = detail || '';
+  $('retryBtn').hidden = !retry;
+  show('statusView');
+}
+function showLogin(msg) { $('loginMsg').textContent = msg || ''; $('keyInput').value = ''; show('loginView'); }
+let toastTimer = null;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+}
+function setSync(kind) {
+  const s = $('sync');
+  s.dataset.kind = kind;
+  if (kind === 'busy') s.textContent = '送信中…';
+  else if (kind === 'error') s.textContent = '通信エラー';
+  else s.textContent = '同期済み' + (state.fetchedAt ? ' ' + state.fetchedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '');
+}
+
+// ---------- 通信 ----------
+// 1) fetch は15秒で打ち切る 2) fetch が失敗・停止したら JSONP（<script>読み込み）で取り直す（iPhoneで fetch が止まる端末の対策）
+// 3) 在庫・使用の増減(adj)は、再送すると二重に増減するので自動では取り直さない
+let cbSeq = 0;
+function buildUrl(params) {
+  const q = new URLSearchParams();
+  Object.keys(params).forEach((k) => q.set(k, String(params[k])));
+  q.set('key', state.key);
+  q.set('t', String(Date.now()));
+  return API_URL + '?' + q.toString();
+}
+function viaFetch(url) {
+  return new Promise((resolve, reject) => {
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = setTimeout(() => { if (ctrl) ctrl.abort(); reject(new Error('fetch timeout ' + FETCH_TIMEOUT_MS / 1000 + 's')); }, FETCH_TIMEOUT_MS);
+    fetch(url, { method: 'GET', credentials: 'omit', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then((res) => res.text().then((text) => {
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('fetch: JSONではない応答 (HTTP ' + res.status + ')'); }
+      }))
+      .then((data) => { clearTimeout(timer); resolve(data); })
+      .catch((e) => { clearTimeout(timer); reject(new Error('fetch: ' + (e && (e.name + ' ' + e.message)))); });
+  });
+}
+function viaJsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = '__ecCb' + Date.now() + '_' + (++cbSeq);
+    const script = document.createElement('script');
+    const cleanup = () => { clearTimeout(timer); delete window[cb]; script.remove(); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error('jsonp timeout ' + JSONP_TIMEOUT_MS / 1000 + 's')); }, JSONP_TIMEOUT_MS);
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    script.onerror = () => { cleanup(); reject(new Error('jsonp: 読み込み失敗')); };
+    script.src = url + '&callback=' + cb;
+    document.head.appendChild(script);
+  });
+}
+const netError = (detail) => ({ kind: 'network', message: '通信できませんでした。電波の状態を確認してください。', detail });
+const apiError = (data) => ({ kind: (data && data.error) || 'server_error', message: (data && data.message) || 'エラーが発生しました。' });
+
+async function request(params, idempotent) {
+  const url = buildUrl(params);
+  const jsonpFirst = storageGet(JSONP_FIRST_STORAGE) === '1';
+  const order = jsonpFirst ? [viaJsonp, viaFetch] : [viaFetch, viaJsonp];
+  let data;
+  try {
+    data = await order[0](url);
+  } catch (e1) {
+    if (!idempotent) throw netError(e1.message);
+    try {
+      data = await order[1](url);
+      if (jsonpFirst) storageDel(JSONP_FIRST_STORAGE); else storageSet(JSONP_FIRST_STORAGE, '1');
+    } catch (e2) {
+      throw netError(e1.message + ' / ' + e2.message);
+    }
+  }
+  if (!data || data.ok !== true) throw apiError(data);
+  return data;
+}
+
+// ---------- 読み込み ----------
+async function load(opts) {
+  opts = opts || {};
+  if (loading) return;
+  loading = true;
+  if (!state.items.length) status('読み込み中…');
+  if (opts.silent) setSync('busy'); else setSync('busy');
+  try {
+    const data = await request({ action: 'list' }, true);
+    state.serverVersion = data.version || '';
+    state.fetchedAt = new Date(data.fetchedAt);
+    applyList(data.items, !!opts.rebuild);
+    show('mainView');
+    if (pendingTotal === 0) setSync('ok');
+  } catch (err) {
+    onLoadError(err);
+  } finally {
+    loading = false;
+  }
+}
+
+function onLoadError(err) {
+  if (err.kind === 'unauthorized') {
+    storageDel(KEY_STORAGE); state.key = '';
+    showLogin(err.message);
+  } else if (state.items.length) {
+    setSync('error');
+    toast(err.message);
+  } else {
+    status(err.message, err.detail ? '詳細: ' + err.detail + '（画面 ' + APP_VERSION + '）' : '（画面 ' + APP_VERSION + '）', true);
+  }
+}
+
+function applyList(serverItems, rebuild) {
+  // 操作中の品目は、手元の値を優先する（古いサーバーの値で上書きして数字が戻るのを防ぐ）
+  const merged = serverItems.map((it) => (rowState.has(it.row) && state.rowMap.has(it.row) ? state.rowMap.get(it.row) : it));
+  state.items = merged;
+  state.rowMap = new Map(merged.map((i) => [i.row, i]));
+  render(rebuild);
+}
+
+// ---------- 表示 ----------
+function matches(it) {
+  if (state.cat && it.cat !== state.cat) return false;
+  if (state.onlyTodo && it.checked) return false;
+  if (state.query && !norm(it.name).includes(norm(state.query))) return false;
+  return true;
+}
+const calcLeft = (it) => (it.stock === null && it.used === null ? null : round6((it.stock || 0) - (it.used || 0)));
+const fmt = (n) => String(n);
+
+function currentSig() {
+  return state.items.map((i) => i.row + '|' + i.cat + '|' + i.name).join('\n') + '#' + state.cat + '#' + state.onlyTodo + '#' + state.query;
+}
+
+function render(force) {
+  if (force || currentSig() !== state.sig) rebuild(); else state.items.forEach(refreshItem);
+  updateProgress();
+}
+
+function updateCatSelect(cats) {
+  const sel = $('catSelect');
+  const keep = state.cat;
+  sel.textContent = '';
+  const all = document.createElement('option'); all.value = ''; all.textContent = 'すべてのカテゴリ'; sel.append(all);
+  cats.forEach((c) => { const o = document.createElement('option'); o.value = c; o.textContent = c || '（カテゴリなし）'; sel.append(o); });
+  if (cats.includes(keep)) sel.value = keep; else { state.cat = ''; sel.value = ''; }
+}
+
+function rebuild() {
+  const cats = [];
+  state.items.forEach((i) => { if (!cats.includes(i.cat)) cats.push(i.cat); });
+  updateCatSelect(cats);
+  const frag = document.createDocumentFragment();
+  cats.forEach((cat) => {
+    const shown = state.items.filter((i) => i.cat === cat && matches(i));
+    if (!shown.length) return;
+    const sec = document.createElement('section'); sec.className = 'cat'; sec.dataset.cat = cat;
+    const h = document.createElement('h2');
+    const nameEl = document.createElement('span'); nameEl.textContent = cat || '（カテゴリなし）';
+    const cnt = document.createElement('span'); cnt.className = 'cat-count';
+    h.append(nameEl, cnt); sec.append(h);
+    const ul = document.createElement('ul'); ul.className = 'items';
+    shown.forEach((it) => ul.append(makeItemEl(it)));
+    sec.append(ul); frag.append(sec);
+  });
+  const list = $('list');
+  list.textContent = '';
+  list.append(frag);
+  $('empty').hidden = list.children.length > 0;
+  state.sig = currentSig();
+  updateCatCounts();
+}
+
+function makeItemEl(it) {
+  const li = $('itemTpl').content.firstElementChild.cloneNode(true);
+  li.dataset.row = it.row;
+  li.querySelector('.check').setAttribute('aria-label', it.name + ' をチェック');
+  li.querySelector('[data-field="stock"] .numin').setAttribute('aria-label', it.name + ' の在庫');
+  li.querySelector('[data-field="used"] .numin').setAttribute('aria-label', it.name + ' の使用');
+  li.querySelectorAll('.step').forEach((b) => {
+    const label = b.closest('.num').dataset.field === 'stock' ? '在庫' : '使用';
+    b.setAttribute('aria-label', it.name + ' の' + label + 'を' + (Number(b.dataset.d) > 0 ? '1増やす' : '1減らす'));
+  });
+  patchItemEl(li, it);
+  return li;
+}
+
+function patchItemEl(li, it) {
+  li.classList.toggle('done', it.checked);
+  li.classList.toggle('gone', !matches(it));
+  li.querySelector('.check').setAttribute('aria-checked', String(it.checked));
+  li.querySelector('.name').textContent = it.name;
+  const memo = li.querySelector('.memo');
+  memo.textContent = it.memo || '';
+  memo.hidden = !it.memo;
+  memo.classList.toggle('warn', /要確認/.test(it.memo || ''));
+  ['stock', 'used'].forEach((f) => {
+    const inp = li.querySelector('[data-field="' + f + '"] .numin');
+    if (document.activeElement !== inp) inp.value = it[f] === null ? '' : fmt(it[f]);
+  });
+  const left = calcLeft(it);
+  li.querySelector('.left .val').textContent = left === null ? '–' : fmt(left);
+  li.querySelector('.left').classList.toggle('neg', left !== null && left < 0);
+}
+
+function refreshItem(it) {
+  const li = $('list').querySelector('[data-row="' + it.row + '"]');
+  if (li) patchItemEl(li, it);
+  updateProgress();
+  updateCatCounts();
+}
+
+function updateProgress() {
+  const total = state.items.length;
+  const done = state.items.filter((i) => i.checked).length;
+  $('progressText').textContent = done + ' / ' + total;
+  $('barFill').style.width = total ? (done / total * 100) + '%' : '0';
+  $('footInfo').textContent = '画面 ' + APP_VERSION + (state.serverVersion ? ' / サーバー ' + state.serverVersion : '');
+}
+
+function updateCatCounts() {
+  $('list').querySelectorAll('.cat').forEach((sec) => {
+    const group = state.items.filter((i) => i.cat === sec.dataset.cat);
+    const done = group.filter((i) => i.checked).length;
+    const cnt = sec.querySelector('.cat-count');
+    cnt.textContent = done + ' / ' + group.length;
+    cnt.classList.toggle('full', group.length > 0 && done === group.length);
+  });
+}
+
+// ---------- 操作 ----------
+function parseNum(text) {
+  const t = String(text).normalize('NFKC').replace(/[,\s]/g, '');
+  if (t === '') return null;
+  if (!/^\d+(\.\d+)?$/.test(t)) return undefined;
+  const n = Number(t);
+  return isFinite(n) && n <= 1e9 ? n : undefined;
+}
+
+function onToggle(it) {
+  const value = !it.checked;
+  it.checked = value;
+  refreshItem(it);
+  enqueue(it, { type: 'check', value });
+}
+function onAdjust(it, field, d) {
+  const cur = it[field];
+  if (cur === null && d < 0) return;
+  it[field] = Math.max(0, round6((cur || 0) + d));
+  refreshItem(it);
+  enqueue(it, { type: 'adj', field, delta: d });
+}
+function onPut(it, field, text) {
+  const parsed = parseNum(text);
+  if (parsed === undefined) {
+    toast('0以上の数字で入力してください。');
+    refreshItem(it);
+    return;
+  }
+  if (parsed === it[field]) { refreshItem(it); return; }
+  it[field] = parsed;
+  refreshItem(it);
+  enqueue(it, { type: 'put', field, value: parsed === null ? '' : parsed });
+}
+
+function enqueue(it, op) {
+  let rs = rowState.get(it.row);
+  if (!rs) { rs = { busy: false, queue: [] }; rowState.set(it.row, rs); }
+  rs.queue.push(op);
+  pendingTotal++;
+  setSync('busy');
+  pump(it.row);
+}
+
+async function pump(row) {
+  const rs = rowState.get(row);
+  if (!rs || rs.busy || !rs.queue.length) return;
+  rs.busy = true;
+  const op = rs.queue.shift();
+  let consumed = 1;
+  if (op.type === 'adj') {
+    // 連打した増減は1回にまとめて送る
+    while (rs.queue.length && rs.queue[0].type === 'adj' && rs.queue[0].field === op.field) {
+      op.delta += rs.queue.shift().delta;
+      consumed++;
+    }
+  }
+  const it = state.rowMap.get(row);
+  const base = { row, name: it ? it.name : '' };
+  try {
+    let data;
+    if (op.type === 'check') data = await request(Object.assign({ action: 'check', value: op.value ? '1' : '0' }, base), true);
+    else if (op.type === 'put') data = await request(Object.assign({ action: 'put', field: op.field, value: op.value }, base), true);
+    else data = await request(Object.assign({ action: 'adj', field: op.field, delta: op.delta }, base), false);
+    pendingTotal -= consumed;
+    rs.busy = false;
+    if (rs.queue.length) {
+      pump(row);
+    } else {
+      rowState.delete(row);
+      applyServerItem(data.item);
+    }
+    if (pendingTotal === 0) { state.fetchedAt = new Date(); setSync('ok'); }
+  } catch (err) {
+    pendingTotal -= consumed + rs.queue.length;
+    rs.queue.length = 0;
+    rs.busy = false;
+    rowState.delete(row);
+    onWriteError(err);
+  }
+}
+
+function applyServerItem(item) {
+  const cur = state.rowMap.get(item.row);
+  if (!cur || cur.name !== item.name) return;
+  const idx = state.items.indexOf(cur);
+  state.items[idx] = item;
+  state.rowMap.set(item.row, item);
+  refreshItem(item);
+}
+
+function onWriteError(err) {
+  if (err.kind === 'unauthorized') {
+    storageDel(KEY_STORAGE); state.key = '';
+    showLogin(err.message);
+    return;
+  }
+  if (err.kind === 'network') toast('通信が不安定です。念のため画面の数字が合っているか確認してください。');
+  else toast(err.message);
+  setSync('error');
+  load({ silent: true }); // サーバーの値に合わせ直す
+}
+
+// ---------- イベント ----------
+const list = $('list');
+list.addEventListener('click', (e) => {
+  const li = e.target.closest('.item');
+  if (!li) return;
+  const it = state.rowMap.get(Number(li.dataset.row));
+  if (!it) return;
+  if (e.target.closest('.check')) { onToggle(it); return; }
+  const step = e.target.closest('.step');
+  if (step) onAdjust(it, step.closest('.num').dataset.field, Number(step.dataset.d));
+});
+list.addEventListener('change', (e) => {
+  if (!e.target.classList.contains('numin')) return;
+  const li = e.target.closest('.item');
+  const it = li && state.rowMap.get(Number(li.dataset.row));
+  if (it) onPut(it, e.target.closest('.num').dataset.field, e.target.value);
+});
+list.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.classList.contains('numin')) e.target.blur(); });
+list.addEventListener('focusin', (e) => { if (e.target.classList.contains('numin')) e.target.select(); });
+
+$('catSelect').addEventListener('change', (e) => { state.cat = e.target.value; render(true); });
+$('todoBtn').addEventListener('click', () => {
+  state.onlyTodo = !state.onlyTodo;
+  $('todoBtn').setAttribute('aria-pressed', String(state.onlyTodo));
+  render(true);
+});
+let searchTimer = null;
+$('search').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.query = e.target.value.trim(); render(true); }, 150);
+});
+$('reloadBtn').addEventListener('click', () => load({ rebuild: true }));
+$('retryBtn').addEventListener('click', () => load());
+$('relogin').addEventListener('click', () => { storageDel(KEY_STORAGE); state.key = ''; showLogin(''); });
+$('loginForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = $('keyInput').value.trim();
+  if (!v) return;
+  state.key = v;
+  storageSet(KEY_STORAGE, v);
+  load();
+});
+
+setInterval(() => {
+  if (document.hidden || pendingTotal > 0 || loading || $('mainView').hidden) return;
+  const a = document.activeElement;
+  if (a && a.classList && a.classList.contains('numin')) return; // 入力中は更新しない
+  load({ silent: true });
+}, POLL_MS);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !$('mainView').hidden && pendingTotal === 0) load({ silent: true });
+});
+
+// 画面側のエラーも原因を残す（何も出ずに止まるのを防ぐ）
+window.addEventListener('error', (e) => {
+  if ($('mainView').hidden) status('画面でエラーが発生しました。', e.message + '（画面 ' + APP_VERSION + '）', true); else toast('画面でエラーが発生しました: ' + e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const msg = String(e.reason && (e.reason.message || e.reason));
+  if ($('mainView').hidden) status('画面でエラーが発生しました。', msg + '（画面 ' + APP_VERSION + '）', true); else toast('画面でエラーが発生しました: ' + msg);
+});
+
+// ---------- 起動 ----------
+function boot() {
+  // 共有リンク（…/index.html#k=合言葉）で開いたら、合言葉を覚えてアドレスから消す
+  const m = location.hash.match(/[#&]k=([^&]*)/);
+  if (m) {
+    try { state.key = decodeURIComponent(m[1]).trim(); } catch (e) { state.key = ''; }
+    if (state.key) storageSet(KEY_STORAGE, state.key);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  }
+  if (!state.key) state.key = (storageGet(KEY_STORAGE) || '').trim();
+  if (!state.key) { showLogin(''); return; }
+  load();
+}
+// ページを開いたまま共有リンクをもう一度押された場合（アドレスの # 以降だけが変わる）も合言葉を受け取る
+window.addEventListener('hashchange', () => { if (/[#&]k=/.test(location.hash)) boot(); });
+boot();
+})();
+</script>
+</body>
+</html>
