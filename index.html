@@ -24,6 +24,8 @@
   --field: #f6f8fb;
   --shade: rgba(15, 23, 32, .45);
 }
+:root[data-mode="event"] { --accent: #b45309; --bg: #f7f0e6; }
+:root[data-mode="daily"] { --accent: #1f3a5f; --bg: #eaf0f7; }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #11161d;
@@ -72,6 +74,10 @@ button:disabled { opacity: .5; cursor: default; }
   flex: 1; height: 38px; border: 0; border-radius: 9px; background: none; font-weight: 700; font-size: 16px; color: var(--muted);
 }
 .tab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+@media (prefers-color-scheme: dark) {
+  :root[data-mode="event"] { --accent: #f0a85c; --bg: #1d1710; }
+  :root[data-mode="daily"] { --accent: #8fb3e0; --bg: #11161d; }
+}
 .sync { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .sync[data-kind="busy"]::before { background: var(--warn); }
@@ -145,8 +151,8 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 .memo { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .memo.warn { color: var(--warn); font-weight: 700; }
 .nums { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr 64px; gap: 8px; align-items: end; }
-.nums.dy { grid-template-columns: 1fr 76px 64px; }
-#list[data-mode="event"] .nums.dy, #list[data-mode="daily"] .nums.ev { display: none; }
+.nums .num.reorder { grid-column: 1 / 3; }
+.nums .num.reorder .numin.solo { width: 100%; }
 .lbl { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; text-align: center; letter-spacing: .06em; }
 .stepper { display: flex; align-items: stretch; height: 44px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--field); }
 .step { flex: none; width: 40px; border: 0; background: none; font-size: 22px; line-height: 1; color: var(--accent); }
@@ -323,7 +329,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
         <div class="memo"></div>
       </div>
     </div>
-    <div class="nums ev">
+    <div class="nums">
       <div class="num" data-field="stock">
         <span class="lbl">在庫</span>
         <div class="stepper">
@@ -341,17 +347,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
         </div>
       </div>
       <div class="left"><span class="lbl">残り</span><span class="val"></span></div>
-    </div>
-    <div class="nums dy">
-      <div class="num" data-field="stock">
-        <span class="lbl">在庫</span>
-        <div class="stepper">
-          <button type="button" class="step" data-d="-1">−</button>
-          <input class="numin" type="text" inputmode="decimal" autocomplete="off">
-          <button type="button" class="step" data-d="1">＋</button>
-        </div>
-      </div>
-      <div class="num" data-field="reorder">
+      <div class="num reorder" data-field="reorder">
         <span class="lbl">発注点</span>
         <input class="numin solo" type="text" inputmode="decimal" autocomplete="off">
       </div>
@@ -365,7 +361,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 'use strict';
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbz1IeUw4AZntCm9v-qDYkG7P0PfPopEtN_kzAKCZ4BAMSDCyuLUyLB1JEgc4MJQvHpB6Q/exec';
-const APP_VERSION = '2026-10-17d'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
+const APP_VERSION = '2026-10-17e'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
 const KEY_STORAGE = 'event_checklist_key';
 const MODE_STORAGE = 'event_checklist_mode';
 const JSONP_FIRST_STORAGE = 'event_checklist_jsonp_first'; // fetch で止まった端末は次回から JSONP を先に使う
@@ -520,7 +516,7 @@ function applyList(serverItems, rebuild) {
 const inMode = (it) => (state.mode === 'daily' ? it.use === '普段' || it.use === '両方' : it.use !== '普段');
 const isDone = (it) => (state.mode === 'daily' ? !!it.daily : !!it.checked);
 const calcLeft = (it) => (it.stock === null && it.used === null ? null : round6((it.stock || 0) - (it.used || 0)));
-const isShort = (it) => it.stock !== null && it.stock !== undefined && it.reorder !== null && it.reorder !== undefined && it.stock < it.reorder;
+const isShort = (it) => it.stock !== null && it.stock !== undefined && it.reorder !== null && it.reorder !== undefined && round6(it.stock - (it.used || 0)) < it.reorder;
 const fmt = (n) => String(n);
 
 // カテゴリ「大分類／小分類」を分ける（「／」「/」どちらでも）。区切りが無ければ小分類は空（シート側 splitCategory_ と同じ）
@@ -553,7 +549,7 @@ function matches(it) {
   if (!inMode(it)) return false;
   if (!catFilterOk(it)) return false;
   if (state.onlyTodo && isDone(it)) return false;
-  if (state.mode === 'daily' && state.onlyShort && !isShort(it)) return false;
+  if (state.onlyShort && !isShort(it)) return false;
   if (state.query && !norm(it.name).includes(norm(state.query))) return false;
   return true;
 }
@@ -692,13 +688,14 @@ function updateHeader() {
   const done = modeItems.filter(isDone).length;
   $('progressText').textContent = done + ' / ' + modeItems.length;
   $('barFill').style.width = modeItems.length ? (done / modeItems.length * 100) + '%' : '0';
-  const shortN = daily ? modeItems.filter(isShort).length : 0;
-  $('shortCount').hidden = !daily || shortN === 0;
+  const shortN = modeItems.filter(isShort).length;
+  document.documentElement.dataset.mode = state.mode;
+  $('shortCount').hidden = shortN === 0;
   $('shortCount').textContent = '不足 ' + shortN;
   $('tabEvent').setAttribute('aria-selected', String(!daily));
   $('tabDaily').setAttribute('aria-selected', String(daily));
   $('todoBtn').setAttribute('aria-pressed', String(state.onlyTodo));
-  $('shortBtn').hidden = !daily;
+  $('shortBtn').hidden = false;
   $('shortBtn').setAttribute('aria-pressed', String(state.onlyShort));
   $('resetBtn').textContent = MODE_LABEL[state.mode] + 'のチェックを全部外す';
   $('resetBtn').disabled = daily && state.layout !== 'v3';
