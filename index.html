@@ -249,8 +249,8 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
   <header class="top">
     <div class="top-row">
       <div class="tabs" role="tablist" aria-label="表示する品目">
-        <button id="tabEvent" class="tab" type="button" role="tab" aria-selected="true">イベント</button>
-        <button id="tabDaily" class="tab" type="button" role="tab" aria-selected="false">普段</button>
+        <button id="tabDaily" class="tab" type="button" role="tab" aria-selected="true">普段</button>
+        <button id="tabEvent" class="tab" type="button" role="tab" aria-selected="false">イベント</button>
       </div>
       <span id="sync" class="sync" data-kind="ok" role="status"></span>
       <button id="addBtn" class="icon-btn" type="button" aria-label="品目を追加">
@@ -361,7 +361,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 'use strict';
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbz1IeUw4AZntCm9v-qDYkG7P0PfPopEtN_kzAKCZ4BAMSDCyuLUyLB1JEgc4MJQvHpB6Q/exec';
-const APP_VERSION = '2026-10-17e'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
+const APP_VERSION = '2026-10-17f'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
 const KEY_STORAGE = 'event_checklist_key';
 const MODE_STORAGE = 'event_checklist_mode';
 const JSONP_FIRST_STORAGE = 'event_checklist_jsonp_first'; // fetch で止まった端末は次回から JSONP を先に使う
@@ -374,7 +374,7 @@ const USE_HINT = { 'イベント': 'イベントの画面にだけ出ます。',
 const $ = (id) => document.getElementById(id);
 const state = {
   items: [], rowMap: new Map(), key: '', layout: 'v3', fetchedAt: null, serverVersion: '', sig: '',
-  mode: 'event', cat: '', onlyTodo: false, onlyShort: false, query: ''
+  mode: 'daily', cat: '', onlyTodo: false, onlyShort: false, query: ''
 };
 const rowState = new Map(); // row -> { busy, queue: [] }  同じ品目への操作は順番に1つずつ送る
 let pendingTotal = 0;
@@ -1014,7 +1014,7 @@ function boot() {
 }
 // ページを開いたまま共有リンクをもう一度押された場合（アドレスの # 以降だけが変わる）もパスワードを受け取る
 window.addEventListener('hashchange', () => { if (/[#&]k=/.test(location.hash)) boot(); });
-state.mode = storageGet(MODE_STORAGE) === 'daily' ? 'daily' : 'event';
+state.mode = 'daily'; // 開いたときは必ず「普段」から（切り替えた画面は覚えない）
 boot();
 })();
 </script>
