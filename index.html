@@ -113,6 +113,12 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .cat-count { font-weight: 400; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cat-count.full { color: var(--ok); font-weight: 700; }
+.cat h2 { font-size: 15px; }
+.cat h3.sub {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 13px; margin: 10px 4px 5px; color: var(--muted); font-weight: 700;
+  padding-left: 8px; border-left: 3px solid var(--line);
+}
 ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .item {
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
@@ -283,7 +289,8 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
     <input id="addName" class="field" type="text" maxlength="40" placeholder="例: 割り箸">
     <label for="addCat">カテゴリ</label>
     <select id="addCat" class="field"></select>
-    <input id="addCatNew" class="field" type="text" maxlength="30" placeholder="新しいカテゴリ名" aria-label="新しいカテゴリ名" hidden>
+    <input id="addCatNew" class="field" type="text" maxlength="30" placeholder="例: ラーメン／食材" aria-label="新しいカテゴリ名" hidden>
+    <p id="addCatHint" class="hint" hidden>「大分類／小分類」と書くと2段になります（例: ラーメン／食材）。「／」なしなら1段です。</p>
     <label>どの画面に出すか</label>
     <div class="seg" id="addUse">
       <button type="button" data-use="イベント" aria-pressed="false">イベント</button>
@@ -358,7 +365,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 'use strict';
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbz1IeUw4AZntCm9v-qDYkG7P0PfPopEtN_kzAKCZ4BAMSDCyuLUyLB1JEgc4MJQvHpB6Q/exec';
-const APP_VERSION = '2026-10-17c'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
+const APP_VERSION = '2026-10-17d'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
 const KEY_STORAGE = 'event_checklist_key';
 const MODE_STORAGE = 'event_checklist_mode';
 const JSONP_FIRST_STORAGE = 'event_checklist_jsonp_first'; // fetch で止まった端末は次回から JSONP を先に使う
@@ -516,9 +523,35 @@ const calcLeft = (it) => (it.stock === null && it.used === null ? null : round6(
 const isShort = (it) => it.stock !== null && it.stock !== undefined && it.reorder !== null && it.reorder !== undefined && it.stock < it.reorder;
 const fmt = (n) => String(n);
 
+// カテゴリ「大分類／小分類」を分ける（「／」「/」どちらでも）。区切りが無ければ小分類は空（シート側 splitCategory_ と同じ）
+function splitCat(cat) {
+  const s = String(cat === undefined || cat === null ? '' : cat).trim();
+  const m = s.match(/^(.*?)\s*[／/]\s*(.*)$/);
+  return m ? { major: m[1].trim(), minor: m[2].trim() } : { major: s, minor: '' };
+}
+// 大分類 → その中のカテゴリ（出てきた順）
+function groupCats(items) {
+  const majors = [];
+  const byMajor = new Map();
+  items.forEach((i) => {
+    const major = splitCat(i.cat).major;
+    if (!byMajor.has(major)) { byMajor.set(major, []); majors.push(major); }
+    const cats = byMajor.get(major);
+    if (!cats.includes(i.cat)) cats.push(i.cat);
+  });
+  return majors.map((major) => ({ major, cats: byMajor.get(major) }));
+}
+const isTwoLevel = (group) => group.cats.some((c) => splitCat(c).minor !== '');
+// 絞り込みの値: '' = すべて、'M:大分類' = その大分類すべて、'C:カテゴリ' = そのカテゴリだけ
+function catFilterOk(it) {
+  if (!state.cat) return true;
+  if (state.cat.startsWith('M:')) return splitCat(it.cat).major === state.cat.slice(2);
+  return it.cat === state.cat.slice(2);
+}
+
 function matches(it) {
   if (!inMode(it)) return false;
-  if (state.cat && it.cat !== state.cat) return false;
+  if (!catFilterOk(it)) return false;
   if (state.onlyTodo && isDone(it)) return false;
   if (state.mode === 'daily' && state.onlyShort && !isShort(it)) return false;
   if (state.query && !norm(it.name).includes(norm(state.query))) return false;
@@ -541,13 +574,32 @@ function categoriesOf(items) {
   return cats;
 }
 
-function updateCatSelect(cats) {
+function updateCatSelect(groups) {
   const sel = $('catSelect');
   sel.textContent = '';
-  const all = document.createElement('option'); all.value = ''; all.textContent = 'すべてのカテゴリ'; sel.append(all);
-  cats.forEach((c) => { const o = document.createElement('option'); o.value = c; o.textContent = c || '（カテゴリなし）'; sel.append(o); });
-  if (!cats.includes(state.cat)) state.cat = '';
+  const values = [''];
+  const add = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; sel.append(o); values.push(value); };
+  sel.append(Object.assign(document.createElement('option'), { value: '', textContent: 'すべてのカテゴリ' }));
+  groups.forEach((g) => {
+    if (isTwoLevel(g)) {
+      add('M:' + g.major, (g.major || '（カテゴリなし）') + '（すべて）');
+      g.cats.forEach((c) => add('C:' + c, '　└ ' + (splitCat(c).minor || '（小分類なし）')));
+    } else {
+      g.cats.forEach((c) => add('C:' + c, c || '（カテゴリなし）'));
+    }
+  });
+  if (!values.includes(state.cat)) state.cat = '';
   sel.value = state.cat;
+}
+
+function makeHeading(tag, cls, text, scope) {
+  const h = document.createElement(tag);
+  if (cls) h.className = cls;
+  const nameEl = document.createElement('span'); nameEl.textContent = text;
+  const cnt = document.createElement('span'); cnt.className = 'cat-count';
+  Object.assign(cnt.dataset, scope);
+  h.append(nameEl, cnt);
+  return h;
 }
 
 function rebuild() {
@@ -557,20 +609,25 @@ function rebuild() {
   const list = $('list');
   list.dataset.mode = state.mode;
   const modeItems = v2Daily ? [] : state.items.filter(inMode);
-  const cats = categoriesOf(modeItems);
-  updateCatSelect(cats);
+  const groups = groupCats(modeItems);
+  updateCatSelect(groups);
   const frag = document.createDocumentFragment();
-  cats.forEach((cat) => {
-    const shown = modeItems.filter((i) => i.cat === cat && matches(i));
-    if (!shown.length) return;
-    const sec = document.createElement('section'); sec.className = 'cat'; sec.dataset.cat = cat;
-    const h = document.createElement('h2');
-    const nameEl = document.createElement('span'); nameEl.textContent = cat || '（カテゴリなし）';
-    const cnt = document.createElement('span'); cnt.className = 'cat-count';
-    h.append(nameEl, cnt); sec.append(h);
-    const ul = document.createElement('ul'); ul.className = 'items';
-    shown.forEach((it) => ul.append(makeItemEl(it)));
-    sec.append(ul); frag.append(sec);
+  groups.forEach((g) => {
+    // 2段のカテゴリ（大分類／小分類）は大分類の見出しの下に小見出しを並べる。1段のカテゴリは見出し1つだけ。
+    const two = isTwoLevel(g);
+    const blocks = g.cats
+      .map((cat) => ({ cat, shown: modeItems.filter((i) => i.cat === cat && matches(i)) }))
+      .filter((b) => b.shown.length);
+    if (!blocks.length) return;
+    const sec = document.createElement('section'); sec.className = 'cat'; sec.dataset.major = g.major;
+    sec.append(makeHeading('h2', '', g.major || '（カテゴリなし）', { major: g.major }));
+    blocks.forEach((b) => {
+      if (two) sec.append(makeHeading('h3', 'sub', splitCat(b.cat).minor || '（小分類なし）', { cat: b.cat }));
+      const ul = document.createElement('ul'); ul.className = 'items';
+      b.shown.forEach((it) => ul.append(makeItemEl(it)));
+      sec.append(ul);
+    });
+    frag.append(sec);
   });
   list.textContent = '';
   list.append(frag);
@@ -649,10 +706,10 @@ function updateHeader() {
 }
 
 function updateCatCounts() {
-  $('list').querySelectorAll('.cat').forEach((sec) => {
-    const group = state.items.filter((i) => i.cat === sec.dataset.cat && inMode(i));
+  $('list').querySelectorAll('.cat-count').forEach((cnt) => {
+    const group = state.items.filter((i) => inMode(i) &&
+      ('cat' in cnt.dataset ? i.cat === cnt.dataset.cat : splitCat(i.cat).major === cnt.dataset.major));
     const done = group.filter(isDone).length;
-    const cnt = sec.querySelector('.cat-count');
     cnt.textContent = done + ' / ' + group.length;
     cnt.classList.toggle('full', group.length > 0 && done === group.length);
   });
@@ -803,11 +860,25 @@ function openAdd() {
   const sel = $('addCat');
   sel.textContent = '';
   const cats = categoriesOf(state.items);
-  const preferred = state.cat || (categoriesOf(state.items.filter(inMode))[0] || cats[0] || '');
-  cats.forEach((c) => { const o = document.createElement('option'); o.value = c; o.textContent = c || '（カテゴリなし）'; sel.append(o); });
-  const neu = document.createElement('option'); neu.value = '__new__'; neu.textContent = '＋ 新しいカテゴリを作る'; sel.append(neu);
+  // 2段のカテゴリは大分類ごとにまとめて出す（選んだ値は「大分類／小分類」のまま）
+  groupCats(state.items).forEach((g) => {
+    if (isTwoLevel(g)) {
+      const og = document.createElement('optgroup'); og.label = g.major || '（カテゴリなし）';
+      g.cats.forEach((c) => og.append(Object.assign(document.createElement('option'), { value: c, textContent: splitCat(c).minor || g.major })));
+      sel.append(og);
+    } else {
+      g.cats.forEach((c) => sel.append(Object.assign(document.createElement('option'), { value: c, textContent: c || '（カテゴリなし）' })));
+    }
+  });
+  sel.append(Object.assign(document.createElement('option'), { value: '__new__', textContent: '＋ 新しいカテゴリを作る' }));
+  // 初期値: 絞り込み中のカテゴリ → 絞り込み中の大分類の最初 → いま見ている画面の最初のカテゴリ
+  let preferred = '';
+  if (state.cat.startsWith('C:')) preferred = state.cat.slice(2);
+  else if (state.cat.startsWith('M:')) preferred = cats.find((c) => splitCat(c).major === state.cat.slice(2)) || '';
+  if (!preferred) preferred = categoriesOf(state.items.filter(inMode))[0] || cats[0] || '';
   sel.value = cats.includes(preferred) ? preferred : (cats.length ? cats[0] : '__new__');
   $('addCatNew').hidden = sel.value !== '__new__';
+  $('addCatHint').hidden = sel.value !== '__new__';
   $('addCatNew').value = '';
   $('addName').value = '';
   $('addReorder').value = '';
@@ -822,7 +893,12 @@ function closeAdd() { $('addPanel').hidden = true; }
 async function submitAdd(e) {
   e.preventDefault();
   const name = $('addName').value.trim();
-  const cat = $('addCat').value === '__new__' ? $('addCatNew').value.trim() : $('addCat').value;
+  let cat = $('addCat').value === '__new__' ? $('addCatNew').value.trim() : $('addCat').value;
+  if (cat) {
+    const c = splitCat(cat);
+    if (!c.major) { $('addErr').textContent = 'カテゴリの「／」の前（大分類）を入力してください。'; return; }
+    cat = c.minor ? c.major + '／' + c.minor : c.major; // 半角の「/」や前後の空白をそろえる
+  }
   const reorder = addUse === 'イベント' ? null : parseNum($('addReorder').value);
   if (!name) { $('addErr').textContent = '品目名を入力してください。'; return; }
   if (!cat) { $('addErr').textContent = 'カテゴリを選ぶか、新しいカテゴリ名を入力してください。'; return; }
@@ -888,7 +964,12 @@ $('addBtn').addEventListener('click', openAdd);
 $('addBtn2').addEventListener('click', openAdd);
 $('addCancel').addEventListener('click', closeAdd);
 $('addPanel').addEventListener('click', (e) => { if (e.target === $('addPanel')) closeAdd(); });
-$('addCat').addEventListener('change', (e) => { $('addCatNew').hidden = e.target.value !== '__new__'; if (!$('addCatNew').hidden) $('addCatNew').focus(); });
+$('addCat').addEventListener('change', (e) => {
+  const isNew = e.target.value === '__new__';
+  $('addCatNew').hidden = !isNew;
+  $('addCatHint').hidden = !isNew;
+  if (isNew) $('addCatNew').focus();
+});
 $('addUse').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setAddUse(b.dataset.use); });
 $('addForm').addEventListener('submit', submitAdd);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('addPanel').hidden) closeAdd(); });
