@@ -168,12 +168,12 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 </head>
 <body>
 
-<!-- 合言葉の入力 -->
+<!-- パスワードの入力 -->
 <main id="loginView" class="panel" hidden>
   <h1>屋台 持ち物・在庫チェック</h1>
-  <p>合言葉を入力してください。</p>
+  <p>パスワードを入力してください。</p>
   <form id="loginForm" autocomplete="off">
-    <input id="keyInput" class="field" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="合言葉" placeholder="合言葉">
+    <input id="keyInput" class="field" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="パスワード" placeholder="パスワード">
     <p id="loginMsg" class="err" role="alert"></p>
     <button class="primary" type="submit">開く</button>
   </form>
@@ -212,7 +212,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
     <p id="empty" class="empty" hidden>条件に合う品目がありません。</p>
     <div class="foot">
       <div id="footInfo"></div>
-      <button id="relogin" class="link" type="button">合言葉を入れ直す</button>
+      <button id="relogin" class="link" type="button">パスワードを入れ直す</button>
     </div>
   </div>
 </div>
@@ -257,7 +257,7 @@ ul.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 'use strict';
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbz1IeUw4AZntCm9v-qDYkG7P0PfPopEtN_kzAKCZ4BAMSDCyuLUyLB1JEgc4MJQvHpB6Q/exec';
-const APP_VERSION = '2026-10-17a'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
+const APP_VERSION = '2026-10-17b'; // 画面ファイルを更新したら変える（スマホに新しい版が届いたかの確認用）
 const KEY_STORAGE = 'event_checklist_key';
 const JSONP_FIRST_STORAGE = 'event_checklist_jsonp_first'; // fetch で止まった端末は次回から JSONP を先に使う
 const POLL_MS = 20000;
@@ -677,7 +677,7 @@ window.addEventListener('unhandledrejection', (e) => {
 
 // ---------- 起動 ----------
 function boot() {
-  // 共有リンク（…/index.html#k=合言葉）で開いたら、合言葉を覚えてアドレスから消す
+  // 共有リンク（…/index.html#k=パスワード）で開いたら、パスワードを覚えてアドレスから消す
   const m = location.hash.match(/[#&]k=([^&]*)/);
   if (m) {
     try { state.key = decodeURIComponent(m[1]).trim(); } catch (e) { state.key = ''; }
@@ -688,7 +688,7 @@ function boot() {
   if (!state.key) { showLogin(''); return; }
   load();
 }
-// ページを開いたまま共有リンクをもう一度押された場合（アドレスの # 以降だけが変わる）も合言葉を受け取る
+// ページを開いたまま共有リンクをもう一度押された場合（アドレスの # 以降だけが変わる）もパスワードを受け取る
 window.addEventListener('hashchange', () => { if (/[#&]k=/.test(location.hash)) boot(); });
 boot();
 })();
